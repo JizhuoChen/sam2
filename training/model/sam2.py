@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import logging
 
 import numpy as np
@@ -65,7 +59,7 @@ class SAM2Train(SAM2Base):
         # whether to forward image features per frame (as it's being tracked) during evaluation, instead of forwarding image features
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
         forward_backbone_per_frame_for_eval=False,
-        freeze_image_encoder=False,
+        freeze_image_encoder=True,
         **kwargs,
     ):
         super().__init__(image_encoder, memory_attention, memory_encoder, **kwargs)
@@ -100,9 +94,8 @@ class SAM2Train(SAM2Base):
         # A random number generator with a fixed initial seed across GPUs
         self.rng = np.random.default_rng(seed=42)
 
-        if freeze_image_encoder:
-            for p in self.image_encoder.parameters():
-                p.requires_grad = False
+        for p in self.image_encoder.parameters():
+            p.requires_grad = False
 
     def forward(self, input: BatchedVideoDatapoint):
         if self.training or not self.forward_backbone_per_frame_for_eval:
@@ -143,128 +136,192 @@ class SAM2Train(SAM2Base):
 
         return image, vision_feats, vision_pos_embeds, feat_sizes
 
+    # def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
+    #     """
+    #     Prepare input mask, point or box prompts. Optionally, we allow tracking from
+    #     a custom `start_frame_idx` to the end of the video (for evaluation purposes).
+    #     """
+    #     # Load the ground-truth masks on all frames (so that we can later
+    #     # sample correction points from them)
+    #     # gt_masks_per_frame = {
+    #     #     stage_id: targets.segments.unsqueeze(1)  # [B, 1, H_im, W_im]
+    #     #     for stage_id, targets in enumerate(input.find_targets)
+    #     # }
+    #     gt_masks_per_frame = {
+    #         stage_id: masks.unsqueeze(1)  # [B, 1, H_im, W_im]
+    #         for stage_id, masks in enumerate(input.masks)
+    #     }
+    #     # gt_masks_per_frame = input.masks.unsqueeze(2) # [T,B,1,H_im,W_im] keep everything in tensor form
+    #     backbone_out["gt_masks_per_frame"] = gt_masks_per_frame
+    #     num_frames = input.num_frames
+    #     backbone_out["num_frames"] = num_frames
+
+    #     # Randomly decide whether to use point inputs or mask inputs
+    #     if self.training:
+    #         prob_to_use_pt_input = self.prob_to_use_pt_input_for_train
+    #         prob_to_use_box_input = self.prob_to_use_box_input_for_train
+    #         num_frames_to_correct = self.num_frames_to_correct_for_train
+    #         rand_frames_to_correct = self.rand_frames_to_correct_for_train
+    #         num_init_cond_frames = self.num_init_cond_frames_for_train
+    #         rand_init_cond_frames = self.rand_init_cond_frames_for_train
+    #     else:
+    #         prob_to_use_pt_input = self.prob_to_use_pt_input_for_eval
+    #         prob_to_use_box_input = self.prob_to_use_box_input_for_eval
+    #         num_frames_to_correct = self.num_frames_to_correct_for_eval
+    #         rand_frames_to_correct = self.rand_frames_to_correct_for_eval
+    #         num_init_cond_frames = self.num_init_cond_frames_for_eval
+    #         rand_init_cond_frames = self.rand_init_cond_frames_for_eval
+    #     if num_frames == 1:
+    #         # here we handle a special case for mixing video + SAM on image training,
+    #         # where we force using point input for the SAM task on static images
+    #         prob_to_use_pt_input = 1.0
+    #         num_frames_to_correct = 1
+    #         num_init_cond_frames = 1
+    #     assert num_init_cond_frames >= 1
+    #     # (here `self.rng.random()` returns value in range 0.0 <= X < 1.0)
+    #     use_pt_input = self.rng.random() < prob_to_use_pt_input
+    #     if rand_init_cond_frames and num_init_cond_frames > 1:
+    #         # randomly select 1 to `num_init_cond_frames` frames as initial conditioning frames
+    #         num_init_cond_frames = self.rng.integers(
+    #             1, num_init_cond_frames, endpoint=True
+    #         )
+    #     if (
+    #         use_pt_input
+    #         and rand_frames_to_correct
+    #         and num_frames_to_correct > num_init_cond_frames
+    #     ):
+    #         # randomly select `num_init_cond_frames` to `num_frames_to_correct` frames to sample
+    #         # correction clicks (only for the case of point input)
+    #         num_frames_to_correct = self.rng.integers(
+    #             num_init_cond_frames, num_frames_to_correct, endpoint=True
+    #         )
+    #     backbone_out["use_pt_input"] = use_pt_input
+
+    #     # Sample initial conditioning frames
+    #     if num_init_cond_frames == 1:
+    #         init_cond_frames = [start_frame_idx]  # starting frame
+    #     else:
+    #         # starting frame + randomly selected remaining frames (without replacement)
+    #         init_cond_frames = [start_frame_idx] + self.rng.choice(
+    #             range(start_frame_idx + 1, num_frames),
+    #             num_init_cond_frames - 1,
+    #             replace=False,
+    #         ).tolist()
+    #     backbone_out["init_cond_frames"] = init_cond_frames
+    #     backbone_out["frames_not_in_init_cond"] = [
+    #         t for t in range(start_frame_idx, num_frames) if t not in init_cond_frames
+    #     ]
+    #     # Prepare mask or point inputs on initial conditioning frames
+    #     backbone_out["mask_inputs_per_frame"] = {}  # {frame_idx: <input_masks>}
+    #     backbone_out["point_inputs_per_frame"] = {}  # {frame_idx: <input_points>}
+
+    #     for t in init_cond_frames:
+    #         if not use_pt_input:
+    #             backbone_out["mask_inputs_per_frame"][t] = gt_masks_per_frame[t]
+    #         else:
+    #             # During training # P(box) = prob_to_use_pt_input * prob_to_use_box_input
+    #             use_box_input = self.rng.random() < prob_to_use_box_input
+    #             if use_box_input:
+    #                 points, labels = sample_box_points(
+    #                     gt_masks_per_frame[t],
+    #                 )
+    #             else:
+    #                 # (here we only sample **one initial point** on initial conditioning frames from the
+    #                 # ground-truth mask; we may sample more correction points on the fly)
+    #                 points, labels = get_next_point(
+    #                     gt_masks=gt_masks_per_frame[t],
+    #                     pred_masks=None,
+    #                     method=(
+    #                         "uniform" if self.training else self.pt_sampling_for_eval
+    #                     ),
+    #                 )
+
+    #             point_inputs = {"point_coords": points, "point_labels": labels}
+    #             backbone_out["point_inputs_per_frame"][t] = point_inputs
+
+    #     # Sample frames where we will add correction clicks on the fly
+    #     # based on the error between prediction and ground-truth masks
+    #     if not use_pt_input:
+    #         # no correction points will be sampled when using mask inputs
+    #         frames_to_add_correction_pt = []
+    #     elif num_frames_to_correct == num_init_cond_frames:
+    #         frames_to_add_correction_pt = init_cond_frames
+    #     else:
+    #         assert num_frames_to_correct > num_init_cond_frames
+    #         # initial cond frame + randomly selected remaining frames (without replacement)
+    #         extra_num = num_frames_to_correct - num_init_cond_frames
+    #         frames_to_add_correction_pt = (
+    #             init_cond_frames
+    #             + self.rng.choice(
+    #                 backbone_out["frames_not_in_init_cond"], extra_num, replace=False
+    #             ).tolist()
+    #         )
+    #     backbone_out["frames_to_add_correction_pt"] = frames_to_add_correction_pt
+
+    #     return backbone_out
+
     def prepare_prompt_inputs(self, backbone_out, input, start_frame_idx=0):
         """
-        Prepare input mask, point or box prompts. Optionally, we allow tracking from
-        a custom `start_frame_idx` to the end of the video (for evaluation purposes).
+        Prepare fixed, three-point prompts:
+        1) bottom-left pixel:      x=0,        y=H-1
+        2) bottom-right pixel:     x=W-1,      y=H-1
+        3) bottom-center pixel:    x=(W-1)//2, y=H-1
+        
+        We bypass all random sampling (points/boxes from GT) and do not use
+        iterative corrections.  We simply store these three points in
+        `point_inputs_per_frame` for every frame in the batch.
         """
-        # Load the ground-truth masks on all frames (so that we can later
-        # sample correction points from them)
-        # gt_masks_per_frame = {
-        #     stage_id: targets.segments.unsqueeze(1)  # [B, 1, H_im, W_im]
-        #     for stage_id, targets in enumerate(input.find_targets)
-        # }
+        # 1) Store ground-truth masks in case other parts of the code use them.
+        #    Each entry is shaped [B, 1, H, W].
         gt_masks_per_frame = {
             stage_id: masks.unsqueeze(1)  # [B, 1, H_im, W_im]
             for stage_id, masks in enumerate(input.masks)
         }
-        # gt_masks_per_frame = input.masks.unsqueeze(2) # [T,B,1,H_im,W_im] keep everything in tensor form
         backbone_out["gt_masks_per_frame"] = gt_masks_per_frame
+
+        # 2) Count how many frames we have (if single-frame, num_frames=1)
         num_frames = input.num_frames
         backbone_out["num_frames"] = num_frames
 
-        # Randomly decide whether to use point inputs or mask inputs
-        if self.training:
-            prob_to_use_pt_input = self.prob_to_use_pt_input_for_train
-            prob_to_use_box_input = self.prob_to_use_box_input_for_train
-            num_frames_to_correct = self.num_frames_to_correct_for_train
-            rand_frames_to_correct = self.rand_frames_to_correct_for_train
-            num_init_cond_frames = self.num_init_cond_frames_for_train
-            rand_init_cond_frames = self.rand_init_cond_frames_for_train
-        else:
-            prob_to_use_pt_input = self.prob_to_use_pt_input_for_eval
-            prob_to_use_box_input = self.prob_to_use_box_input_for_eval
-            num_frames_to_correct = self.num_frames_to_correct_for_eval
-            rand_frames_to_correct = self.rand_frames_to_correct_for_eval
-            num_init_cond_frames = self.num_init_cond_frames_for_eval
-            rand_init_cond_frames = self.rand_init_cond_frames_for_eval
-        if num_frames == 1:
-            # here we handle a special case for mixing video + SAM on image training,
-            # where we force using point input for the SAM task on static images
-            prob_to_use_pt_input = 1.0
-            num_frames_to_correct = 1
-            num_init_cond_frames = 1
-        assert num_init_cond_frames >= 1
-        # (here `self.rng.random()` returns value in range 0.0 <= X < 1.0)
-        use_pt_input = self.rng.random() < prob_to_use_pt_input
-        if rand_init_cond_frames and num_init_cond_frames > 1:
-            # randomly select 1 to `num_init_cond_frames` frames as initial conditioning frames
-            num_init_cond_frames = self.rng.integers(
-                1, num_init_cond_frames, endpoint=True
-            )
-        if (
-            use_pt_input
-            and rand_frames_to_correct
-            and num_frames_to_correct > num_init_cond_frames
-        ):
-            # randomly select `num_init_cond_frames` to `num_frames_to_correct` frames to sample
-            # correction clicks (only for the case of point input)
-            num_frames_to_correct = self.rng.integers(
-                num_init_cond_frames, num_frames_to_correct, endpoint=True
-            )
-        backbone_out["use_pt_input"] = use_pt_input
+        # 3) Initialize dictionaries that the rest of SAM2 code expects.
+        backbone_out["mask_inputs_per_frame"] = {}
+        backbone_out["point_inputs_per_frame"] = {}
+        backbone_out["frames_to_add_correction_pt"] = []
 
-        # Sample initial conditioning frames
-        if num_init_cond_frames == 1:
-            init_cond_frames = [start_frame_idx]  # starting frame
-        else:
-            # starting frame + randomly selected remaining frames (without replacement)
-            init_cond_frames = [start_frame_idx] + self.rng.choice(
-                range(start_frame_idx + 1, num_frames),
-                num_init_cond_frames - 1,
-                replace=False,
-            ).tolist()
+        # We consider *all* frames as "init_cond_frames" here (or at least frame 0).
+        # If single-frame, that is just [0].
+        init_cond_frames = list(range(start_frame_idx, start_frame_idx + num_frames))
         backbone_out["init_cond_frames"] = init_cond_frames
-        backbone_out["frames_not_in_init_cond"] = [
-            t for t in range(start_frame_idx, num_frames) if t not in init_cond_frames
-        ]
-        # Prepare mask or point inputs on initial conditioning frames
-        backbone_out["mask_inputs_per_frame"] = {}  # {frame_idx: <input_masks>}
-        backbone_out["point_inputs_per_frame"] = {}  # {frame_idx: <input_points>}
+        backbone_out["frames_not_in_init_cond"] = []
+        backbone_out["use_pt_input"] = True  # Tells code we are using point prompts.
+
+        # 4) For every frame, we create the same 3 fixed “bottom” points for each item in batch.
         for t in init_cond_frames:
-            if not use_pt_input:
-                backbone_out["mask_inputs_per_frame"][t] = gt_masks_per_frame[t]
-            else:
-                # During training # P(box) = prob_to_use_pt_input * prob_to_use_box_input
-                use_box_input = self.rng.random() < prob_to_use_box_input
-                if use_box_input:
-                    points, labels = sample_box_points(
-                        gt_masks_per_frame[t],
-                    )
-                else:
-                    # (here we only sample **one initial point** on initial conditioning frames from the
-                    # ground-truth mask; we may sample more correction points on the fly)
-                    points, labels = get_next_point(
-                        gt_masks=gt_masks_per_frame[t],
-                        pred_masks=None,
-                        method=(
-                            "uniform" if self.training else self.pt_sampling_for_eval
-                        ),
-                    )
+            masks_t = gt_masks_per_frame[t]          # shape [B, 1, H, W]
+            B, _, H, W = masks_t.shape
+            device = masks_t.device
 
-                point_inputs = {"point_coords": points, "point_labels": labels}
-                backbone_out["point_inputs_per_frame"][t] = point_inputs
+            # Create a tensor for the 3 points: shape [B, 3, 2], in (x, y) format.
+            # bottom-left   => (0,       H - 1)
+            # bottom-right  => (W - 1,   H - 1)
+            # bottom-center => ((W-1)//2, H - 1)
+            coords = torch.zeros(B, 3, 2, device=device)
+            coords[:, 0, 0] = 0
+            coords[:, 0, 1] = H - 1
+            coords[:, 1, 0] = W - 1
+            coords[:, 1, 1] = H - 1
+            coords[:, 2, 0] = (W - 1) // 2
+            coords[:, 2, 1] = H - 1
 
-        # Sample frames where we will add correction clicks on the fly
-        # based on the error between prediction and ground-truth masks
-        if not use_pt_input:
-            # no correction points will be sampled when using mask inputs
-            frames_to_add_correction_pt = []
-        elif num_frames_to_correct == num_init_cond_frames:
-            frames_to_add_correction_pt = init_cond_frames
-        else:
-            assert num_frames_to_correct > num_init_cond_frames
-            # initial cond frame + randomly selected remaining frames (without replacement)
-            extra_num = num_frames_to_correct - num_init_cond_frames
-            frames_to_add_correction_pt = (
-                init_cond_frames
-                + self.rng.choice(
-                    backbone_out["frames_not_in_init_cond"], extra_num, replace=False
-                ).tolist()
-            )
-        backbone_out["frames_to_add_correction_pt"] = frames_to_add_correction_pt
+            # Labels shape [B, 3].  Use label=1 to mark them as positive/foreground points.
+            labels = torch.ones(B, 3, dtype=torch.long, device=device)
+
+            # Put these into the dictionary for the current frame index.
+            point_inputs = {"point_coords": coords, "point_labels": labels}
+            backbone_out["point_inputs_per_frame"][t] = point_inputs
 
         return backbone_out
+
 
     def forward_tracking(
         self, backbone_out, input: BatchedVideoDatapoint, return_dict=False
@@ -362,11 +419,12 @@ class SAM2Train(SAM2Base):
         output_dict,
         num_frames,
         track_in_reverse=False,  # tracking in reverse time order (for demo usage)
-        run_mem_encoder=True,  # Whether to run the memory encoder on the predicted masks.
+        run_mem_encoder=False,  # Whether to run the memory encoder on the predicted masks.
         prev_sam_mask_logits=None,  # The previously predicted SAM mask logits.
         frames_to_add_correction_pt=None,
         gt_masks=None,
     ):
+        run_mem_encoder = False
         if frames_to_add_correction_pt is None:
             frames_to_add_correction_pt = []
         current_out, sam_outputs, high_res_features, pix_feat = self._track_step(
@@ -432,17 +490,17 @@ class SAM2Train(SAM2Base):
         current_out["pred_masks_high_res"] = high_res_masks
         current_out["obj_ptr"] = obj_ptr
 
-        # Finally run the memory encoder on the predicted mask to encode
-        # it into a new memory feature (that can be used in future frames)
-        self._encode_memory_in_output(
-            current_vision_feats,
-            feat_sizes,
-            point_inputs,
-            run_mem_encoder,
-            high_res_masks,
-            object_score_logits,
-            current_out,
-        )
+        # # Finally run the memory encoder on the predicted mask to encode
+        # # it into a new memory feature (that can be used in future frames)
+        # self._encode_memory_in_output(
+        #     current_vision_feats,
+        #     feat_sizes,
+        #     point_inputs,
+        #     run_mem_encoder,
+        #     high_res_masks,
+        #     object_score_logits,
+        #     current_out,
+        # )
         return current_out
 
     def _iter_correct_pt_sampling(
