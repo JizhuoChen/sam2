@@ -244,11 +244,62 @@ def get_state_dict(checkpoint, ckpt_state_dict_keys):
     return pre_train_dict
 
 
+# def load_checkpoint_and_apply_kernels(
+#     checkpoint_path: str,
+#     checkpoint_kernels: List[Callable] = None,
+#     ckpt_state_dict_keys: Tuple[str] = ("state_dict",),
+#     map_location: str = "cpu",
+# ) -> nn.Module:
+#     """
+#     Performs checkpoint loading with a variety of pre-processing kernel applied in
+#     sequence.
+
+#     Args:
+#         checkpoint_path (str): Path to the checkpoint.
+#         checkpoint_kernels List(Callable): A list of checkpoint processing kernels
+#             to apply in the specified order. Supported kernels include `CkptIncludeKernel`,
+#             `CkptExcludeKernel`, etc. These kernels are applied in the
+#             given order.
+#         ckpt_state_dict_keys (str): Keys containing the model state dict.
+#         map_location (str): a function, torch.device, string or a dict specifying how to
+#             remap storage locations
+
+#     Returns: Model with the matchin pre-trained weights loaded.
+#     """
+#     assert g_pathmgr.exists(checkpoint_path), "Checkpoint '{}' not found".format(
+#         checkpoint_path
+#     )
+
+#     # Load the checkpoint on CPU to avoid GPU mem spike.
+#     with g_pathmgr.open(checkpoint_path, "rb") as f:
+#         checkpoint = torch.load(f, map_location=map_location)
+
+#     pre_train_dict = get_state_dict(checkpoint, ckpt_state_dict_keys)
+
+#     # Not logging into info etc since it's a huge log
+#     logging.debug(
+#         "Loaded Checkpoint State Dict pre-kernel application: %s"
+#         % str(", ".join(list(pre_train_dict.keys())))
+#     )
+#     # Apply kernels
+#     if checkpoint_kernels is not None:
+#         for f in checkpoint_kernels:
+#             pre_train_dict = f(state_dict=pre_train_dict)
+
+#     logging.debug(
+#         "Loaded Checkpoint State Dict Post-kernel application %s"
+#         % str(", ".join(list(pre_train_dict.keys())))
+#     )
+
+#     return pre_train_dict
+
+
 def load_checkpoint_and_apply_kernels(
     checkpoint_path: str,
     checkpoint_kernels: List[Callable] = None,
     ckpt_state_dict_keys: Tuple[str] = ("state_dict",),
     map_location: str = "cpu",
+    want_custom_prompt_encoder=False,
 ) -> nn.Module:
     """
     Performs checkpoint loading with a variety of pre-processing kernels applied in
@@ -290,6 +341,9 @@ def load_checkpoint_and_apply_kernels(
         if "memory_attention" in k or "memory_encoder" in k or "obj_ptr_proj" in k:
             del pre_train_dict[k]
     keys_to_remove = ['maskmem_tpos_enc', 'no_obj_embed_spatial', 'obj_ptr_tpos_proj', 'no_obj_ptr', 'mask_downsample.weight', 'mask_downsample.bias', 'sam_mask_decoder.obj_score_token.weight', 'sam_mask_decoder.pred_obj_score_head.layers.0.weight', 'sam_mask_decoder.pred_obj_score_head.layers.0.bias', 'sam_mask_decoder.pred_obj_score_head.layers.1.weight', 'sam_mask_decoder.pred_obj_score_head.layers.1.bias', 'sam_mask_decoder.pred_obj_score_head.layers.2.weight', 'sam_mask_decoder.pred_obj_score_head.layers.2.bias']
+    custom_keys_remove = ['sam_prompt_encoder.pe_layer.positional_encoding_gaussian_matrix', 'sam_prompt_encoder.point_embeddings.0.weight', 'sam_prompt_encoder.point_embeddings.1.weight', 'sam_prompt_encoder.point_embeddings.2.weight', 'sam_prompt_encoder.point_embeddings.3.weight', 'sam_prompt_encoder.not_a_point_embed.weight', 'sam_prompt_encoder.mask_downscaling.0.weight', 'sam_prompt_encoder.mask_downscaling.0.bias', 'sam_prompt_encoder.mask_downscaling.1.weight', 'sam_prompt_encoder.mask_downscaling.1.bias', 'sam_prompt_encoder.mask_downscaling.3.weight', 'sam_prompt_encoder.mask_downscaling.3.bias', 'sam_prompt_encoder.mask_downscaling.4.weight', 'sam_prompt_encoder.mask_downscaling.4.bias', 'sam_prompt_encoder.mask_downscaling.6.weight', 'sam_prompt_encoder.mask_downscaling.6.bias', 'sam_prompt_encoder.no_mask_embed.weight']
+    if want_custom_prompt_encoder:
+        keys_to_remove.extend(custom_keys_remove)
     for key in list(pre_train_dict.keys()):
         if any(key.startswith(prefix) for prefix in keys_to_remove):
             logging.info(f"Removing key from checkpoint: {key}")
@@ -301,7 +355,6 @@ def load_checkpoint_and_apply_kernels(
     )
 
     return pre_train_dict
-
 
 def check_load_state_dict_errors(
     missing_keys,

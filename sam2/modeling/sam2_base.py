@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import torch
 import torch.distributed
 import torch.nn.functional as F
@@ -11,7 +5,7 @@ import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 
 from sam2.modeling.sam.mask_decoder import MaskDecoder
-from sam2.modeling.sam.prompt_encoder import PromptEncoder
+from sam2.modeling.sam.prompt_encoder import PromptEncoder, CustomPromptEncoder
 from sam2.modeling.sam.transformer import TwoWayTransformer
 from sam2.modeling.sam2_utils import get_1d_sine_pe, MLP, select_closest_cond_frames
 
@@ -93,6 +87,7 @@ class SAM2Base(torch.nn.Module):
         # extra arguments used to construct the SAM mask decoder; if not None, it should be a dict of kwargs to be passed into `MaskDecoder` class.
         sam_mask_decoder_extra_args=None,
         compile_image_encoder: bool = False,
+        want_custom_prompt_encoder:bool = False
     ):
         super().__init__()
 
@@ -178,7 +173,7 @@ class SAM2Base(torch.nn.Module):
             self.no_obj_embed_spatial = torch.nn.Parameter(torch.zeros(1, self.mem_dim))
             trunc_normal_(self.no_obj_embed_spatial, std=0.02)
 
-        self._build_sam_heads()
+        self._build_sam_heads(want_custom_prompt_encoder=want_custom_prompt_encoder)
         self.max_cond_frames_in_attn = max_cond_frames_in_attn
 
         # Model compilation
@@ -204,22 +199,33 @@ class SAM2Base(torch.nn.Module):
             "See notebooks/video_predictor_example.ipynb for an inference example."
         )
 
-    def _build_sam_heads(self):
+    def _build_sam_heads(self, want_custom_prompt_encoder=False):
         """Build SAM-style prompt encoder and mask decoder."""
         self.sam_prompt_embed_dim = self.hidden_dim
         self.sam_image_embedding_size = self.image_size // self.backbone_stride
 
         # build PromptEncoder and MaskDecoder from SAM
         # (their hyperparameters like `mask_in_chans=16` are from SAM code)
-        self.sam_prompt_encoder = PromptEncoder(
-            embed_dim=self.sam_prompt_embed_dim,
-            image_embedding_size=(
-                self.sam_image_embedding_size,
-                self.sam_image_embedding_size,
-            ),
-            input_image_size=(self.image_size, self.image_size),
-            mask_in_chans=16,
-        )
+        if want_custom_prompt_encoder:
+            self.sam_prompt_encoder = CustomPromptEncoder(
+                embed_dim=self.sam_prompt_embed_dim,
+                image_embedding_size=(
+                    self.sam_image_embedding_size,
+                    self.sam_image_embedding_size,
+                ),
+                input_image_size=(self.image_size, self.image_size),
+                mask_in_chans=16,
+            )
+        else:
+            self.sam_prompt_encoder = PromptEncoder(
+                embed_dim=self.sam_prompt_embed_dim,
+                image_embedding_size=(
+                    self.sam_image_embedding_size,
+                    self.sam_image_embedding_size,
+                ),
+                input_image_size=(self.image_size, self.image_size),
+                mask_in_chans=16,
+            )
         self.sam_mask_decoder = MaskDecoder(
             num_multimask_outputs=3,
             transformer=TwoWayTransformer(

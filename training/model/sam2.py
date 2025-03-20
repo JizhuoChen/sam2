@@ -60,9 +60,10 @@ class SAM2Train(SAM2Base):
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
         forward_backbone_per_frame_for_eval=False,
         freeze_image_encoder=True,
+        want_custom_prompt_encoder=False,
         **kwargs,
     ):
-        super().__init__(image_encoder, memory_attention, memory_encoder, **kwargs)
+        super().__init__(image_encoder, memory_attention, memory_encoder, want_custom_prompt_encoder=want_custom_prompt_encoder, **kwargs)
         self.use_act_ckpt_iterative_pt_sampling = use_act_ckpt_iterative_pt_sampling
         self.forward_backbone_per_frame_for_eval = forward_backbone_per_frame_for_eval
 
