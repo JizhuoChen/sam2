@@ -299,7 +299,7 @@ def load_checkpoint_and_apply_kernels(
     checkpoint_kernels: List[Callable] = None,
     ckpt_state_dict_keys: Tuple[str] = ("state_dict",),
     map_location: str = "cpu",
-    want_custom_prompt_encoder=False,
+    want_custom_prompt_encoder=1, # 0, 1, 2
 ) -> nn.Module:
     """
     Performs checkpoint loading with a variety of pre-processing kernels applied in
@@ -342,7 +342,7 @@ def load_checkpoint_and_apply_kernels(
             del pre_train_dict[k]
     keys_to_remove = ['maskmem_tpos_enc', 'no_obj_embed_spatial', 'obj_ptr_tpos_proj', 'no_obj_ptr', 'mask_downsample.weight', 'mask_downsample.bias', 'sam_mask_decoder.obj_score_token.weight', 'sam_mask_decoder.pred_obj_score_head.layers.0.weight', 'sam_mask_decoder.pred_obj_score_head.layers.0.bias', 'sam_mask_decoder.pred_obj_score_head.layers.1.weight', 'sam_mask_decoder.pred_obj_score_head.layers.1.bias', 'sam_mask_decoder.pred_obj_score_head.layers.2.weight', 'sam_mask_decoder.pred_obj_score_head.layers.2.bias']
     custom_keys_remove = ['sam_prompt_encoder.pe_layer.positional_encoding_gaussian_matrix', 'sam_prompt_encoder.point_embeddings.0.weight', 'sam_prompt_encoder.point_embeddings.1.weight', 'sam_prompt_encoder.point_embeddings.2.weight', 'sam_prompt_encoder.point_embeddings.3.weight', 'sam_prompt_encoder.not_a_point_embed.weight', 'sam_prompt_encoder.mask_downscaling.0.weight', 'sam_prompt_encoder.mask_downscaling.0.bias', 'sam_prompt_encoder.mask_downscaling.1.weight', 'sam_prompt_encoder.mask_downscaling.1.bias', 'sam_prompt_encoder.mask_downscaling.3.weight', 'sam_prompt_encoder.mask_downscaling.3.bias', 'sam_prompt_encoder.mask_downscaling.4.weight', 'sam_prompt_encoder.mask_downscaling.4.bias', 'sam_prompt_encoder.mask_downscaling.6.weight', 'sam_prompt_encoder.mask_downscaling.6.bias', 'sam_prompt_encoder.no_mask_embed.weight']
-    if want_custom_prompt_encoder:
+    if want_custom_prompt_encoder != 0:
         keys_to_remove.extend(custom_keys_remove)
     for key in list(pre_train_dict.keys()):
         if any(key.startswith(prefix) for prefix in keys_to_remove):

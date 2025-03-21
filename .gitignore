@@ -9,3 +9,8 @@ _C.*
 outputs/*
 checkpoints/*.pt
 demo/backend/checkpoints/*.pt
+
+sam2_logs/*
+training/FOLD6/*
+training/FOLD6_/*
+training/MOSE/*

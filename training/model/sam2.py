@@ -59,8 +59,9 @@ class SAM2Train(SAM2Base):
         # whether to forward image features per frame (as it's being tracked) during evaluation, instead of forwarding image features
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
         forward_backbone_per_frame_for_eval=False,
-        freeze_image_encoder=True,
-        want_custom_prompt_encoder=False,
+        freeze_image_encoder="all", # all, most, half, none
+        freeze_mask_decoder="none", # all, most, half, none
+        want_custom_prompt_encoder=1, # 0, 1, 2
         **kwargs,
     ):
         super().__init__(image_encoder, memory_attention, memory_encoder, want_custom_prompt_encoder=want_custom_prompt_encoder, **kwargs)
@@ -95,8 +96,53 @@ class SAM2Train(SAM2Base):
         # A random number generator with a fixed initial seed across GPUs
         self.rng = np.random.default_rng(seed=42)
 
-        for p in self.image_encoder.parameters():
-            p.requires_grad = False
+        logging.info(f"Freezing {freeze_image_encoder} of the image encoder params and {freeze_mask_decoder} of the mask encoder params.")
+        if freeze_image_encoder == "all":
+            for p in self.image_encoder.parameters():
+                p.requires_grad = False
+        elif freeze_image_encoder == "most":
+            for param in self.image_encoder.parameters():
+                param.requires_grad = False
+            # Unfreeze the neck
+            for name, param in self.image_encoder.named_parameters():
+                if "neck" in name:
+                    param.requires_grad = True
+        elif freeze_image_encoder == "half":
+            for param in self.image_encoder.parameters():
+                param.requires_grad = False
+            # Unfreeze the neck + last blocks
+            for name, param in self.image_encoder.named_parameters():
+                if "blocks.21" in name or "blocks.22" in name or "blocks.23" in name or "neck" in name:
+                    param.requires_grad = True
+
+        total = sum(p.numel() for p in self.image_encoder.parameters())
+        trainable = sum(p.numel() for p in self.image_encoder.parameters() if p.requires_grad)
+        logging.info(f"\n ----- >>> Image Encoder Unfrozen params: {trainable} / {total} <<< -----")
+
+        total = sum(p.numel() for p in self.sam_prompt_encoder.parameters())
+        trainable = sum(p.numel() for p in self.sam_prompt_encoder.parameters() if p.requires_grad)
+        logging.info(f"\n ----- >>> Prompt Encoder Unfrozen params: {trainable} / {total} <<< -----")
+
+        if freeze_mask_decoder == "all":
+            for param in self.sam_mask_decoder.parameters():
+                param.requires_grad = False
+        elif freeze_mask_decoder == "most":
+            for param in self.sam_mask_decoder.parameters():
+                param.requires_grad = False
+            for name, param in self.sam_mask_decoder.named_parameters():
+                if "iou_prediction_head" in name:
+                    param.requires_grad = True
+        elif freeze_mask_decoder == "half":
+            for param in self.sam_mask_decoder.parameters():
+                param.requires_grad = False
+            parts_to_unfreeze = ["output_upscaling", "conv_s0", "conv_s1", "iou_prediction_head"]
+            for name, param in self.sam_mask_decoder.named_parameters():
+                if any(part in name for part in parts_to_unfreeze):
+                    param.requires_grad = True
+
+        total = sum(p.numel() for p in self.sam_mask_decoder.parameters())
+        trainable = sum(p.numel() for p in self.sam_mask_decoder.parameters() if p.requires_grad)
+        logging.info(f"\n ----- >>> Mask Decoder Unfrozen params: {trainable} / {total} <<< -----")     
 
     def forward(self, input: BatchedVideoDatapoint):
         if self.training or not self.forward_backbone_per_frame_for_eval:

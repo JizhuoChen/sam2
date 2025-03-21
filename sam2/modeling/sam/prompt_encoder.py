@@ -274,3 +274,134 @@ class CustomPromptEncoder(nn.Module):
         1 x embed_dim x H x W.
         """
         return self.learned_pe.unsqueeze(0)
+
+
+class CustomPromptEncoderLarger(nn.Module):
+    def __init__(
+        self,
+        embed_dim: int,
+        image_embedding_size: Tuple[int, int],
+        input_image_size: Tuple[int, int],
+        mask_in_chans: int,
+        activation: Type[nn.Module] = nn.GELU,
+        num_tokens: int = 4,
+        mlp_hidden_factor: int = 4,  # how large to make the MLP hidden dim
+        num_conv_layers: int = 2,    # how many conv layers to apply on dense_emb
+    ) -> None:
+        """
+        Drop-in replacement for the original PromptEncoder that:
+        1) Has the same signature
+        2) Ignores real prompts in forward()
+        3) Returns purely learned embeddings
+        4) Provides a get_dense_pe() for the mask decoder
+        5) Uses small MLP / Conv blocks to increase trainable parameter capacity
+
+        Args:
+            embed_dim (int): final embedding dimension.
+            image_embedding_size (Tuple[int, int]): (H, W) for the output feature map.
+            input_image_size (Tuple[int, int]): (ignored, for interface compat).
+            mask_in_chans (int): (ignored, for interface compat).
+            activation (Type[nn.Module]): activation class (e.g. nn.GELU).
+            num_tokens (int): how many sparse prompt tokens to learn.
+            mlp_hidden_factor (int): hidden dimension multiplier for the MLP on sparse tokens.
+            num_conv_layers (int): how many conv layers to apply on the dense embedding.
+        """
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.image_embedding_size = image_embedding_size
+        self.input_image_size = input_image_size
+        self.mask_in_chans = mask_in_chans
+        self.activation = activation
+        self.num_tokens = num_tokens
+
+        # ---------------------------------------------------------
+        # 1) Trainable base parameters
+        # ---------------------------------------------------------
+        # a) Sparse tokens (num_tokens x embed_dim)
+        self.sparse_tokens = nn.Parameter(torch.randn(num_tokens, embed_dim))
+
+        # b) Dense embedding for the "mask" branch (embed_dim x H x W)
+        H, W = self.image_embedding_size
+        self.dense_emb = nn.Parameter(torch.randn(embed_dim, H, W))
+
+        # c) Learned positional encoding (embed_dim x H x W)
+        self.learned_pe = nn.Parameter(torch.randn(embed_dim, H, W))
+
+        # ---------------------------------------------------------
+        # 2) Additional MLP to transform sparse tokens
+        # ---------------------------------------------------------
+        # We'll transform each token from size (embed_dim) -> (embed_dim),
+        # using a hidden layer of size embed_dim * mlp_hidden_factor.
+        hidden_dim = embed_dim * mlp_hidden_factor
+        self.sparse_mlp = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            self.activation(),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+
+        # ---------------------------------------------------------
+        # 3) Additional conv stack to transform the dense_emb
+        # ---------------------------------------------------------
+        # We apply a small series of conv layers on the shape (embed_dim, H, W).
+        # Using groups=1, kernel_size=3, etc. as an example. 
+        # You can insert BN/LayerNorm if you like.
+        conv_layers = []
+        in_channels = embed_dim
+        for _ in range(num_conv_layers):
+            conv_layers.append(nn.Conv2d(in_channels, embed_dim, kernel_size=1, padding=0, stride=1))
+            conv_layers.append(self.activation())
+            in_channels = embed_dim
+        self.dense_conv = nn.Sequential(*conv_layers)
+
+    def forward(
+        self,
+        points: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        boxes: Optional[torch.Tensor] = None,
+        masks: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Ignoring input prompts, returning:
+          sparse_embeddings: (B, num_tokens, embed_dim)
+          dense_embeddings:  (B, embed_dim, H, W)
+        """
+        # ---------------------------------------------------------
+        # 1) Figure out batch size
+        # ---------------------------------------------------------
+        if points is not None:
+            bs = points[0].shape[0]
+        elif boxes is not None:
+            bs = boxes.shape[0]
+        elif masks is not None:
+            bs = masks.shape[0]
+        else:
+            bs = 1
+
+        # ---------------------------------------------------------
+        # 2) Transform the sparse tokens
+        # ---------------------------------------------------------
+        # a) shape: (num_tokens, embed_dim)
+        tokens = self.sparse_tokens
+        # b) apply MLP, still shape (num_tokens, embed_dim)
+        tokens = self.sparse_mlp(tokens)
+        # c) expand across batch dimension => (B, num_tokens, embed_dim)
+        sparse_embeddings = tokens.unsqueeze(0).expand(bs, -1, -1)
+
+        # ---------------------------------------------------------
+        # 3) Transform the dense embedding
+        # ---------------------------------------------------------
+        # a) shape: (embed_dim, H, W)
+        dense = self.dense_emb
+        # b) feed it through the conv stack => (embed_dim, H, W)
+        # note: conv expects (B, C, H, W), so we temporarily unsqueeze
+        dense = dense.unsqueeze(0)  # shape (1, embed_dim, H, W)
+        dense = self.dense_conv(dense)  # shape (1, embed_dim, H, W)
+        # we now expand across batch dimension => (B, embed_dim, H, W)
+        dense_embeddings = dense.expand(bs, -1, -1, -1)
+
+        return sparse_embeddings, dense_embeddings
+
+    def get_dense_pe(self) -> torch.Tensor:
+        """
+        Return a trainable image positional encoding of shape (1, embed_dim, H, W).
+        """
+        return self.learned_pe.unsqueeze(0)

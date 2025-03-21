@@ -9,7 +9,7 @@ scratch:
   base_lr: 1.0e-5  # 5.0e-6
   vision_lr: 6.0e-06  # 3.0e-6
   phases_per_epoch: 1
-  num_epochs: 50
+  num_epochs: 10
 
 dataset:
   # PATHS to Dataset
@@ -196,6 +196,8 @@ trainer:
     num_init_cond_frames_for_eval: 1  # only mask on the first frame
     forward_backbone_per_frame_for_eval: True
 
+    freeze_image_encoder: "half"
+    freeze_mask_decoder: "none"
     want_custom_prompt_encoder: 1
 
   data:
