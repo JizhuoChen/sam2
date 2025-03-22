@@ -25,7 +25,7 @@ def remove_unmatched_subfolders(folder1, folder2):
     print("Cleanup complete. Only common subfolders remain.")
 
 # Example usage:
-folder_path1 = "./FOLD6/annotation_fold4/"
-folder_path2 = "./FOLD6/fold4"
+folder_path1 = "./7fold/7/fold7"
+folder_path2 = "./7fold/7/annotation_fold7"
 
 remove_unmatched_subfolders(folder_path1, folder_path2)

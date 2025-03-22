@@ -321,7 +321,7 @@ trainer:
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
         checkpoint_path: ./checkpoints/sam2.1_hiera_base_plus.pt # PATH to SAM 2.1 checkpoint
         ckpt_state_dict_keys: ['model']
-        want_custom_prompt_encoder: True
+        want_custom_prompt_encoder: 2
 
 launcher:
   num_nodes: 1
