@@ -2,14 +2,14 @@
 
 scratch:
   resolution: 1024
-  train_batch_size: 20
-  num_train_workers: 20
+  train_batch_size: 26
+  num_train_workers: 26
   num_frames: 1
   max_num_objects: 1
   base_lr: 1.0e-5  # 5.0e-6
   vision_lr: 6.0e-06  # 3.0e-6
   phases_per_epoch: 1
-  num_epochs: 10
+  num_epochs: 30
 
 dataset:
   # PATHS to Dataset
@@ -68,9 +68,13 @@ trainer:
       scalp: 1
       trunk:
         _target_: sam2.modeling.backbones.hieradet.Hiera
-        embed_dim: 112
+        embed_dim: 144
         num_heads: 2
         drop_path_rate: 0.1
+        stages: [2, 6, 36, 4]
+        global_att_blocks: [23, 33, 43]
+        window_pos_embed_bkg_spatial_size: [7, 7]
+        window_spec: [8, 4, 16, 8]
       neck:
         _target_: sam2.modeling.backbones.image_encoder.FpnNeck
         position_encoding:
@@ -80,7 +84,7 @@ trainer:
           scale: null
           temperature: 10000
         d_model: 256
-        backbone_channel_list: [896, 448, 224, 112]
+        backbone_channel_list: [1152, 576, 288, 144]
         fpn_top_down_levels: [2, 3]  # output level 0 and 1 directly use the backbone features
         fpn_interp_model: nearest
 
@@ -198,7 +202,7 @@ trainer:
 
     freeze_image_encoder: "none"
     freeze_mask_decoder: "none"
-    want_custom_prompt_encoder: 1
+    want_custom_prompt_encoder: 2
 
   data:
     train:
@@ -309,7 +313,7 @@ trainer:
   # initialize from a SAM 2 checkpoint
   checkpoint:
     save_dir: ${launcher.experiment_log_dir}/checkpoints
-    save_freq: 0 # 0 only last checkpoint is saved.
+    save_freq: 2 # 0 only last checkpoint is saved.
     model_weight_initializer:
       _partial_: True
       _target_: training.utils.checkpoint_utils.load_state_dict_into_model
@@ -321,7 +325,7 @@ trainer:
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
         checkpoint_path: ./checkpoints/sam2.1_hiera_base_plus.pt # PATH to SAM 2.1 checkpoint
         ckpt_state_dict_keys: ['model']
-        want_custom_prompt_encoder: 1
+        want_custom_prompt_encoder: 2
 
 launcher:
   num_nodes: 1

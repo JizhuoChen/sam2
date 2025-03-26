@@ -2,19 +2,19 @@
 
 scratch:
   resolution: 1024
-  train_batch_size: 16
-  num_train_workers: 16
+  train_batch_size: 26
+  num_train_workers: 26
   num_frames: 1
   max_num_objects: 1
-  base_lr: 5.0e-6  # 5.0e-6
-  vision_lr: 3.0e-06  # 3.0e-6
+  base_lr: 1.0e-5  # 5.0e-6
+  vision_lr: 6.0e-06  # 3.0e-6
   phases_per_epoch: 1
-  num_epochs: 5
+  num_epochs: 30
 
 dataset:
   # PATHS to Dataset
-  img_folder: training/7fold/1/fold1/ # PATH to MOSE JPEGImages folder
-  gt_folder: training/7fold/1/annotation_fold1/
+  img_folder: training/FOLD6/train/img_folder/ # PATH to MOSE JPEGImages folder
+  gt_folder: training/FOLD6/train/gt_folder/
   file_list_txt: null
   multiplier: 2
 
@@ -71,9 +71,9 @@ trainer:
         embed_dim: 96
         num_heads: 1
         drop_path_rate: 0.1
-        stages: [1, 2, 7, 2]
-        global_att_blocks: [5, 7, 9]
-        window_pos_embed_bkg_spatial_size: [7, 7]  
+        stages: [1, 2, 11, 2]
+        global_att_blocks: [7, 10, 13]
+        window_pos_embed_bkg_spatial_size: [7, 7]
       neck:
         _target_: sam2.modeling.backbones.image_encoder.FpnNeck
         position_encoding:
@@ -312,7 +312,7 @@ trainer:
   # initialize from a SAM 2 checkpoint
   checkpoint:
     save_dir: ${launcher.experiment_log_dir}/checkpoints
-    save_freq: 1 # 0 only last checkpoint is saved.
+    save_freq: 2 # 0 only last checkpoint is saved.
     model_weight_initializer:
       _partial_: True
       _target_: training.utils.checkpoint_utils.load_state_dict_into_model
@@ -322,7 +322,7 @@ trainer:
 
       state_dict:
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
-        checkpoint_path: ./checkpoints/sam2.1_hiera_tiny.pt # PATH to SAM 2.1 checkpoint
+        checkpoint_path: ./checkpoints/sam2.1_hiera_base_plus.pt # PATH to SAM 2.1 checkpoint
         ckpt_state_dict_keys: ['model']
         want_custom_prompt_encoder: 2
 
